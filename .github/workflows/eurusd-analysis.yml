@@ -17,4 +17,6 @@ jobs:
           python-version: "3.12"
 
       - name: Run EUR/USD bot
+        env:
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
         run: python eurusd_bot.py
