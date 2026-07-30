@@ -22,12 +22,19 @@ jobs:
           pip install requests playwright
           playwright install --with-deps chromium
 
+      - name: Capture TradingView
+        run: python tradingview_capture.py
+
       - name: Run EUR/USD bot
         env:
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          python tradingview_capture.py
-          python eurusd_bot.py
+        run: python eurusd_bot.py
+
+      - name: Upload TradingView evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: tradingview-evidence
+          path: evidence/eurusd_tradingview.png
