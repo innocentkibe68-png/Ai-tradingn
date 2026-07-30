@@ -25,6 +25,14 @@ jobs:
       - name: Capture TradingView
         run: python tradingview_capture.py
 
+      - name: Check TradingView evidence
+        run: |
+          echo "Evidence directory:"
+          ls -lah evidence || true
+
+          echo "Expected screenshot:"
+          ls -lah evidence/eurusd_tradingview.png
+
       - name: Run EUR/USD bot
         env:
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
@@ -38,3 +46,4 @@ jobs:
         with:
           name: tradingview-evidence
           path: evidence/eurusd_tradingview.png
+          if-no-files-found: error
