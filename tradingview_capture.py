@@ -1,66 +1,99 @@
-import os
-import logging
+ import os
 import time
+import logging
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 logger = logging.getLogger(__name__)
 
-TRADINGVIEW_URL = "https://www.tradingview.com/chart/?symbol=FX_IDC:EURUSD&interval=15"
+TRADINGVIEW_URL = (
+    "https://www.tradingview.com/chart/"
+    "?symbol=FX_IDC%3AEURUSD&interval=15"
+)
+
 OUTPUT_DIR = Path("evidence")
 OUTPUT_FILE = OUTPUT_DIR / "eurusd_tradingview.png"
 
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36"
+)
 
-def capture_tradingview(max_retries: int = 2):
-    """
-    Captures a TradingView chart with retry logic and sanity checks 
-    to prevent blank or loading-screen screenshots.
-    """
+
+def is_blank(path: Path, min_std: float = 20.0, min_bytes: int = 15_000) -> bool:
+    """True if the screenshot looks blank or failed to render."""
+    size = os.path.getsize(path)
+    if size < min_bytes:
+        logger.warning(f"File too small ({size} bytes).")
+        return True
+    try:
+        from PIL import Image
+        import numpy as np
+        img = np.array(Image.open(path).convert("L"))
+        std = float(img.std())
+        logger.info(f"Pixel std: {std:.2f}")
+        return std < min_std
+    except Exception as e:
+        logger.warning(f"PIL validation unavailable ({e}); relying on file size only.")
+        return False
+
+
+def capture_tradingview(max_retries: int = 3):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     for attempt in range(1, max_retries + 1):
-        logger.info(f"Attempting TradingView capture (Attempt {attempt}/{max_retries})...")
+        logger.info(f"Capture attempt {attempt}/{max_retries}...")
         try:
             with sync_playwright() as p:
-                # Added --no-sandbox and --disable-web-security for GitHub Actions stability
                 browser = p.chromium.launch(
-                    headless=True, 
-                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"]
+                    headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox"],
                 )
-                page = browser.new_page(viewport={"width": 1600, "height": 1000})
-                
-                logger.info("Navigating to TradingView...")
-                # domcontentloaded is faster and more reliable than networkidle for TradingView
-                page.goto(TRADINGVIEW_URL, wait_until="domcontentloaded", timeout=60_000)
-                
-                # 1. Wait for the actual chart canvas to exist in the DOM
-                page.wait_for_selector("canvas.chart-canvas", timeout=30_000)
-                
-                # 2. Fixed buffer for candles and indicators to physically render on the canvas
-                logger.info("Chart DOM loaded. Waiting 8s for visual render...")
-                page.wait_for_timeout(8_000) 
-                
-                # 3. Capture
+                context = browser.new_context(
+                    viewport={"width": 1600, "height": 1000},
+                    user_agent=USER_AGENT,   # don't announce ourselves as a bot
+                )
+                page = context.new_page()
+
+                page.goto(
+                    TRADINGVIEW_URL,
+                    wait_until="domcontentloaded",
+                    timeout=60_000,
+                )
+
+                # Generic canvas wait — no fragile class names
+                try:
+                    page.wait_for_selector("canvas", timeout=20_000)
+                    logger.info("Canvas element present.")
+                except Exception:
+                    logger.warning("No canvas within 20s; continuing with fixed render wait.")
+
+                # Render buffer for candles to physically paint
+                page.wait_for_timeout(12_000)
+
+                logger.info(f"Page title: {page.title()}")
+
                 page.screenshot(path=str(OUTPUT_FILE), full_page=False)
                 browser.close()
-            
-            # 4. Sanity Check: File Size
-            # A real 1600x1000 chart with candles/grid is almost always > 40KB. 
-            # A blank white screen or loading spinner is usually < 15KB.
-            file_size = os.path.getsize(OUTPUT_FILE)
-            if file_size < 15_000:
-                logger.warning(f"Screenshot too small ({file_size} bytes), likely blank. Retrying...")
+
+            if is_blank(OUTPUT_FILE):
+                logger.warning("Screenshot looks blank. Retrying...")
                 time.sleep(3)
-                continue 
-            
-            logger.info(f"✅ Successfully captured TradingView chart ({file_size} bytes)")
-            return  # Success! Exit the function.
-            
+                continue
+
+            logger.info("Capture validated: chart content present.")
+            return
+
         except Exception as e:
-            logger.error(f"Capture attempt {attempt} failed: {e}")
+            logger.error(f"Attempt {attempt} failed: {e}")
             if attempt == max_retries:
-                raise RuntimeError(f"Failed to capture TradingView after {max_retries} attempts.")
+                raise RuntimeError(
+                    f"Failed to capture TradingView after {max_retries} attempts."
+                )
             time.sleep(3)
+
+    raise RuntimeError("All captures were blank or failed.")
 
 
 if __name__ == "__main__":
