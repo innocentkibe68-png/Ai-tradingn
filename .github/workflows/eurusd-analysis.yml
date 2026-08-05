@@ -3,9 +3,13 @@ name: EUR/USD Analysis
 on:
   workflow_dispatch:
 
+concurrency:
+  group: eurusd-analysis        # never two runs stepping on each other
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    timeout-minutes: 10          # a hung pipeline must die loudly
 
     steps:
       - name: Checkout repository
@@ -19,35 +23,21 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests playwright
+          pip install requests playwright pillow numpy
           playwright install --with-deps chromium
 
       - name: Capture TradingView
-        run: python tradingview_capture.py
+        run: python tradingview_capture.py   # retry-until-non-blank logic goes in the script
 
-      - name: Check TradingView evidence
+      - name: Validate evidence (content, not existence)
         run: |
-          echo "Evidence directory:"
-          ls -lah evidence || true
-
-          echo "Expected screenshot:"
-          ls -lah evidence/eurusd_tradingview.png
-
-      - name: Run EUR/USD bot
-        env:
-          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
-          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python eurusd_bot.py
-
-      - name: Send Telegram test
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python telegram.py
+          python - <<'EOF'
+          from PIL import Image
+          import numpy as np
+          img = np.array(Image.open("evidence/eurusd_tradingview.png").convert("L"))
+          print("pixel std:", round(float(img.std()), 2))
+          assert img.std() > 20, "BLANK CHART — capture invalid"
+          EOF
 
       - name: Upload TradingView evidence
         uses: actions/upload-artifact@v4
@@ -55,3 +45,17 @@ jobs:
           name: tradingview-evidence
           path: evidence/eurusd_tradingview.png
           if-no-files-found: error
+
+      - name: Run EUR/USD bot
+        env:
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: python eurusd_bot.py            # must write message.txt
+
+      - name: Send Telegram report
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python telegram.py --file message.txt
