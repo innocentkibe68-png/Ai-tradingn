@@ -22,7 +22,7 @@ USER_AGENT = (
 
 
 def is_blank(path: Path, min_std: float = 20.0, min_bytes: int = 15_000) -> bool:
-    """True if the screenshot looks blank or failed to render."""
+    """Return True if the screenshot looks blank or failed to render."""
     size = os.path.getsize(path)
     if size < min_bytes:
         logger.warning(f"File too small ({size} bytes).")
@@ -40,6 +40,7 @@ def is_blank(path: Path, min_std: float = 20.0, min_bytes: int = 15_000) -> bool
 
 
 def capture_tradingview(max_retries: int = 3):
+    """Capture the TradingView chart with retries and blank-screen validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     for attempt in range(1, max_retries + 1):
@@ -52,7 +53,7 @@ def capture_tradingview(max_retries: int = 3):
                 )
                 context = browser.new_context(
                     viewport={"width": 1600, "height": 1000},
-                    user_agent=USER_AGENT,   # don't announce ourselves as a bot
+                    user_agent=USER_AGENT,
                 )
                 page = context.new_page()
 
@@ -62,14 +63,14 @@ def capture_tradingview(max_retries: int = 3):
                     timeout=60_000,
                 )
 
-                # Generic canvas wait — no fragile class names
+                # Generic canvas wait - no fragile class names
                 try:
                     page.wait_for_selector("canvas", timeout=20_000)
                     logger.info("Canvas element present.")
                 except Exception:
                     logger.warning("No canvas within 20s; continuing with fixed render wait.")
 
-                # Render buffer for candles to physically paint
+                # Render buffer so candles can physically draw
                 page.wait_for_timeout(12_000)
 
                 logger.info(f"Page title: {page.title()}")
