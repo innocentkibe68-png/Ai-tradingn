@@ -22,7 +22,6 @@ USER_AGENT = (
 
 
 def is_blank(path: Path, min_std: float = 20.0, min_bytes: int = 15_000) -> bool:
-    """Return True if the screenshot looks blank or failed to render."""
     size = os.path.getsize(path)
     if size < min_bytes:
         logger.warning(f"File too small ({size} bytes).")
@@ -35,12 +34,11 @@ def is_blank(path: Path, min_std: float = 20.0, min_bytes: int = 15_000) -> bool
         logger.info(f"Pixel std: {std:.2f}")
         return std < min_std
     except Exception as e:
-        logger.warning(f"PIL validation unavailable ({e}); relying on file size only.")
+        logger.warning(f"PIL validation unavailable ({e}); using file size only.")
         return False
 
 
 def capture_tradingview(max_retries: int = 3):
-    """Capture the TradingView chart with retries and blank-screen validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     for attempt in range(1, max_retries + 1):
@@ -63,16 +61,13 @@ def capture_tradingview(max_retries: int = 3):
                     timeout=60_000,
                 )
 
-                # Generic canvas wait - no fragile class names
                 try:
                     page.wait_for_selector("canvas", timeout=20_000)
                     logger.info("Canvas element present.")
                 except Exception:
-                    logger.warning("No canvas within 20s; continuing with fixed render wait.")
+                    logger.warning("No canvas within 20s; continuing anyway.")
 
-                # Render buffer so candles can physically draw
                 page.wait_for_timeout(12_000)
-
                 logger.info(f"Page title: {page.title()}")
 
                 page.screenshot(path=str(OUTPUT_FILE), full_page=False)
