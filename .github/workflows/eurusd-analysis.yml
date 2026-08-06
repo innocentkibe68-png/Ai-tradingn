@@ -1,4 +1,4 @@
- name: EUR/USD Analysis
+name: EUR/USD Analysis
 
 on:
   workflow_dispatch:
