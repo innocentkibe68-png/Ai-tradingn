@@ -17,17 +17,26 @@ def render_local_chart(output_path="evidence/eurusd_local_chart.png"):
     df = df.set_index("datetime").sort_index()
     df = df[["open", "high", "low", "close"]].astype(float)
 
-    mpf.plot(
-        df,
-        type="candles",
-        mav=(20, 50),
-        style="charles",
-        title="EUR/USD 15m - Desk-Rendered Evidence",
-        ylabel="Price",
-        figsize=(16, 9),
-        savefig=output_path,
-    )
-    logger.info(f"Local evidence chart saved to {output_path}")
+    last_error = None
+    for plot_type in ("candles", "candle", "ohlc", "line"):
+        try:
+            mpf.plot(
+                df,
+                type=plot_type,
+                mav=(20, 50),
+                style="charles",
+                title="EUR/USD 15m - Desk-Rendered Evidence",
+                ylabel="Price",
+                figsize=(16, 9),
+                savefig=output_path,
+            )
+            logger.info(f"Chart rendered with type={plot_type}")
+            return
+        except TypeError as e:
+            last_error = e
+            logger.warning(f"type={plot_type} rejected; trying next...")
+
+    raise RuntimeError(f"All plot types rejected by mplfinance: {last_error}")
 
 
 if __name__ == "__main__":
