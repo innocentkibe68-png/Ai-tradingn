@@ -80,4 +80,4 @@ def macd(values: List[float], fast: int = 12, slow: int = 26, signal: int = 9) -
         "macd": round(current_macd, 5),
         "signal": round(current_signal, 5),
         "histogram": round(current_macd - current_signal, 5),
-    } 'histogram'
+    }
