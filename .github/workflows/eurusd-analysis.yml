@@ -1,15 +1,15 @@
-name: EUR/USD Analysis
+ name: EUR/USD Analysis
 
 on:
   workflow_dispatch:
 
 concurrency:
-  group: eurusd-analysis        # never two runs stepping on each other
+  group: eurusd-analysis
 
 jobs:
   analyze:
     runs-on: ubuntu-latest
-    timeout-minutes: 10          # a hung pipeline must die loudly
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -23,27 +23,35 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests playwright pillow numpy
+          pip install requests playwright pillow numpy pandas mplfinance
           playwright install --with-deps chromium
 
-      - name: Capture TradingView
-        run: python tradingview_capture.py   # retry-until-non-blank logic goes in the script
+      - name: Capture TradingView (best effort)
+        continue-on-error: true
+        run: python tradingview_capture.py
+
+      - name: Render local evidence chart
+        env:
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+        run: python chart_render.py
 
       - name: Validate evidence (content, not existence)
         run: |
           python - <<'EOF'
           from PIL import Image
-          import numpy as np
-          img = np.array(Image.open("evidence/eurusd_tradingview.png").convert("L"))
+          import numpy as np, os
+          path = "evidence/eurusd_local_chart.png"
+          assert os.path.exists(path), "Local chart missing"
+          img = np.array(Image.open(path).convert("L"))
           print("pixel std:", round(float(img.std()), 2))
-          assert img.std() > 20, "BLANK CHART — capture invalid"
+          assert img.std() > 20, "BLANK local chart"
           EOF
 
-      - name: Upload TradingView evidence
+      - name: Upload evidence
         uses: actions/upload-artifact@v4
         with:
           name: tradingview-evidence
-          path: evidence/eurusd_tradingview.png
+          path: evidence/
           if-no-files-found: error
 
       - name: Run EUR/USD bot
@@ -52,10 +60,11 @@ jobs:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: python eurusd_bot.py            # must write message.txt
+        run: python eurusd_bot.py
 
       - name: Send Telegram report
+        if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python telegram.py --file message.txt
+        run: python telegram.py
